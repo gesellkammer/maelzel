@@ -93,6 +93,69 @@ def _spectralCentroid(magnitude: np.ndarray, freqs: np.ndarray) -> float:
     return float((magnitude * freqs).sum() / magsum)
 
 
+def _acf_pitch(power: np.ndarray, fs: int, fmin: float, fmax: float, frameSize: int) -> tuple[float | None, float]:
+    """
+    Estimate the fundamental frequency of a single frame via normalized
+    autocorrelation (FFT-based, via the Wiener-Khinchin theorem).
+
+    Returns (f0, confidence). confidence is the normalized ACF value at the
+    detected lag -- close to 1.0 for a strongly periodic (voiced) frame,
+    near 0 for noise/silence. Returns (None, 0.0) if the frame is silent or
+    no valid pitch candidate exists in [fmin, fmax].
+    """
+    n = frameSize
+    acf = np.fft.irfft(power)[:n]
+
+    if acf[0] <= 1e-9:
+        return None, 0.0
+
+    acf_norm = acf / acf[0]
+
+    lag_min = max(int(fs / fmax), 1)
+    lag_max = min(int(fs / fmin), n - 1)
+    if lag_max <= lag_min:
+        return None, 0.0
+
+    search = acf_norm[lag_min:lag_max]
+    peak = np.argmax(search)
+    lag = lag_min + peak
+    confidence = search[peak]
+    return fs / lag, confidence
+
+
+def _bandEnergy(power: np.ndarray, freqs: np.ndarray, freq: float, bandBins: int = 2) -> float:
+    if freq <= 0 or len(power) == 0:
+        return 0.0
+    idx = int(np.searchsorted(freqs, freq))
+    start = max(0, idx - bandBins)
+    end = min(len(power), idx + bandBins + 1)
+    return float(power[start:end].sum())
+
+
+def _acfSpectralSupport(power: np.ndarray,
+                        freqs: np.ndarray,
+                        f0: float,
+                        bandBins: int = 2,
+                        maxHarmonics: int = 6) -> float:
+    """
+    Measure how much spectral energy is actually present around f0 compared to
+    its higher harmonics.
+    """
+    base = _bandEnergy(power, freqs, f0, bandBins=bandBins)
+    if base <= 0:
+        return 0.0
+
+    harmonic_energy = 0.0
+    nyquist = freqs[-1]
+    for harmonic in range(2, maxHarmonics + 1):
+        freq = f0 * harmonic
+        if freq >= nyquist:
+            break
+        harmonic_energy += _bandEnergy(power, freqs, freq, bandBins=bandBins) / harmonic
+
+    return base / (base + harmonic_energy)
+
+
 def _fftDiff(rfft: np.ndarray, N: int) -> np.ndarray:
     """
     Sum of squared differences at each lag, using FFT autocorrelation
@@ -108,24 +171,6 @@ def _fftDiff(rfft: np.ndarray, N: int) -> np.ndarray:
     """
     acf = np.fft.irfft(rfft * np.conj(rfft))[:N]
     return 2.0 * (acf[0] - acf)
-
-
-# def _diffFunc(frame: np.ndarray) -> np.ndarray:
-#     """
-#     difference function
-#
-#     Args:
-#         frame: Audio data
-#
-#     Returns:
-#         an array containing the correlation difference per fft bin
-#
-#     """
-#     N = len(frame)
-#     # next power of 2 > than N
-#     fftsize = 1 << (2 * N - 1).bit_length()
-#     F = np.fft.rfft(frame, n=fftsize)
-#     return _fftDiff(F, N)
 
 
 class CMNDF:
@@ -182,7 +227,6 @@ def _analyzeFrame(cmndf: np.ndarray, tau_min: int, tau_max: int
         cmndf: one cmndf frame holding tau values
         tau_min: index to first tau value to use
         tau_max: index to last tau value to use
-
     Returns:
         a tuple (best_tau, min_tau) within the given values, where
         best_tau represents a fractional index to the cmndf frame
@@ -201,9 +245,12 @@ class AnalysisFrame:
     time: float
     magnitude: np.ndarray
     frameSize: int
+    samples: np.ndarray
+    # Calculated on demand
     _power: np.ndarray | None = None
     _diff: np.ndarray | None = None
     _cmndf: np.ndarray | None = None
+    _rms: float | None = None
 
     def power(self) -> np.ndarray:
         """
@@ -212,6 +259,17 @@ class AnalysisFrame:
         if self._power is None:
             self._power = self.magnitude ** 2
         return self._power
+
+    def rms(self) -> float:
+        """
+        Returns the RMS amplitude of the frame (cached)
+        """
+        if self._rms is None:
+            if self.samples is not None:
+                self._rms = float(np.sqrt(np.mean(self.samples ** 2)))
+            else:
+                self._rms = 0.0
+        return self._rms
 
     def diff(self) -> np.ndarray:
         if self._diff is None:
@@ -251,7 +309,8 @@ class Analysis:
                  minFreq: float = 80.0,
                  maxFreq: float = 1000.0,
                  window: str = "hann",
-                 normalize: bool = True):
+                 normalize: bool = True,
+                 lowAmpSuppression: float = 0.0):
         self.samples = np.asarray(samples, dtype=np.float64)
         if self.samples.ndim != 1:
             raise ValueError("Only mono arrays are supported")
@@ -267,6 +326,7 @@ class Analysis:
         self.minFreq = float(minFreq)
         self.maxFreq = float(maxFreq)
         self.windowName = window
+        self.lowAmpSuppression = float(lowAmpSuppression)
         from scipy.signal import get_window
         self.window = get_window(window, self.frameSize)
         self.frames, self.times = makeFrames(self.samples, sr=self.sr,
@@ -276,6 +336,14 @@ class Analysis:
         self.fftFreqs = np.fft.rfftfreq(self.fftSize, d=1. / self.sr)
         self.cmndf = CMNDF(self.frameSize)
         self._features: list[AnalysisFeature] = []
+        
+        # Compute RMS threshold for amplitude suppression
+        if self.lowAmpSuppression > 0:
+            frame_rms = np.array([np.sqrt(np.mean(f ** 2)) for f in self.frames])
+            max_rms = frame_rms.max()
+            self.rmsThreshold = self.lowAmpSuppression * max_rms
+        else:
+            self.rmsThreshold = 0.0
 
     @property
     def numFrames(self) -> int:
@@ -297,10 +365,9 @@ class Analysis:
             windowed = frame * self.window
             spectrum = np.fft.rfft(windowed, n=self.fftSize)
             magnitude = np.abs(spectrum)
-            power = magnitude ** 2
             yield AnalysisFrame(index=index, time=float(self.times[index]),
-                                magnitude=magnitude, power=power,
-                                frameSize=self.frameSize)
+                                magnitude=magnitude, frameSize=self.frameSize,
+                                samples=frame)
 
     def run(self) -> dict:
         for feature in self._features:
@@ -313,6 +380,17 @@ class Analysis:
         out = {'times': self.times}
         for feature in self._features:
             out.update(feature.finalize(self))
+        
+        # Apply amplitude suppression if configured
+        if self.rmsThreshold > 0:
+            frame_rms = np.array([np.sqrt(np.mean(f ** 2)) for f in self.frames])
+            amp_mask = frame_rms < self.rmsThreshold
+            for key in out:
+                if key != 'times' and isinstance(out[key], np.ndarray) and len(out[key]) == len(amp_mask):
+                    # Suppress low-amplitude frames
+                    if np.issubdtype(out[key].dtype, np.floating):
+                        out[key] = np.where(amp_mask, np.nan, out[key])
+        
         return out
 
 
@@ -400,6 +478,53 @@ class CentroidFeature(AnalysisFeature):
         return {'centroid': self.values}
 
 
+class AcfFeature(AnalysisFeature):
+    name = 'acf'
+
+    def __init__(self,
+                 minFreq: float = 0,
+                 maxFreq: float = 5000,
+                 verifySpectralSupport: bool = True,
+                 supportThreshold: float = 0.02,
+                 supportHarmonics: int = 6):
+        self.minFreq = minFreq
+        self.maxFreq = maxFreq
+        self.verifySpectralSupport = verifySpectralSupport
+        self.supportThreshold = supportThreshold
+        self.f0s: np.ndarray | None = None
+        self.confidences: np.ndarray | None = None
+        self.spectralSupportMaxHarmonics = supportHarmonics
+
+    def prepare(self, analysis: Analysis) -> None:
+        self.minFreq = analysis.minFreq if self.minFreq is None else self.minFreq
+        self.maxFreq = analysis.maxFreq if self.maxFreq is None else self.maxFreq
+        self.f0s = np.full(analysis.numFrames, np.nan, dtype=float)
+        self.confidences = np.zeros(analysis.numFrames, dtype=float)
+
+    def consume(self, frame: AnalysisFrame, analysis: Analysis) -> None:
+        assert self.f0s is not None
+        assert self.confidences is not None
+        powerspec = frame.power()
+        f0, confidence = _acf_pitch(powerspec, analysis.sr, self.minFreq, self.maxFreq,
+                                    frame.frameSize)
+        if f0 is not None:
+            if self.verifySpectralSupport:
+                support = _acfSpectralSupport(powerspec, analysis.fftFreqs, f0, maxHarmonics=self.spectralSupportMaxHarmonics)
+                if support < self.supportThreshold:
+                    f0 = None
+                    confidence = 0.0
+            self.f0s[frame.index] = f0
+        self.confidences[frame.index] = confidence
+
+    def finalize(self, analysis: Analysis) -> dict:
+        assert self.f0s is not None
+        assert self.confidences is not None
+        return {
+            'acf.f0': self.f0s,
+            'acf.confidence': self.confidences,
+        }
+
+
 class RolloffFeature(AnalysisFeature):
     name = 'rolloff'
 
@@ -463,6 +588,8 @@ def _featureFactory(name: str) -> AnalysisFeature:
         return FlatnessFeature()
     elif name == 'centroid':
         return CentroidFeature()
+    elif name == 'acf':
+        return AcfFeature()
     elif name == 'rolloff':
         return RolloffFeature()
     elif name == 'focus':
@@ -1038,11 +1165,11 @@ def analyze(
     Args:
         samples: the samples to analyze (1D audio array)
         sr: sample rate
-            'flatness', 'centroid', 'rolloff' and 'focus'
+            'flatness', 'centroid', 'acf', 'rolloff' and 'focus'
         frameSize: window size
         hopSize: hop size in samples
         features: the features to analyze. Available features:
-            'pyin', 'flatness', 'centroid', 'rolloff', 'focus'
+            'pyin', 'flatness', 'centroid', 'acf', 'rolloff', 'focus'
         minFreq: min. frequency to considere for fundamental tracking
         maxFreq: max. frequency to considere for fundamental tracking
         window: kind of window to use
@@ -1076,6 +1203,8 @@ def analyze(
             analysis.addFeature(FlatnessFeature())
         elif feature == 'centroid':
             analysis.addFeature(CentroidFeature())
+        elif feature == 'acf':
+            analysis.addFeature(AcfFeature(minFreq=minFreq, maxFreq=maxFreq))
         elif feature == 'rolloff':
             analysis.addFeature(RolloffFeature(rolloff=rolloff))
         elif feature == 'focus':

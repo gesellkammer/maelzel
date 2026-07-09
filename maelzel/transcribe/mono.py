@@ -152,8 +152,9 @@ class FundamentalAnalysisMonophonic:
                           " not supported at the moment")
 
         if not minFrequency and not fftSize:
-            minFrequency, _ = pitchtrack.detectMinFrequency(samples, sr=sr, refine=False,
-                                                            lowAmpSuppression=lowAmpSuppression)
+            from maelzel.snd import spectralfeatures
+            from pitchtools import amp2db
+            minFrequency = spectralfeatures.lowestSignificantFreq(samples, sr=sr, mindb=amp2db(lowAmpSuppression))
             if minFrequency == 0:
                 raise ValueError("Could not detect any pitched sound")
         if not fftSize:

@@ -44,11 +44,12 @@ def f0curvePyin(sig: np.ndarray, sr: int, minfreq=50, maxfreq=2000,
 
     totaldur = len(sig) / sr
 
-    from maelzel.snd import pyin
-    times, f0, confidence, voiced = pyin.pyin(sig, sr=sr,
-                                              minFreq=minfreq, maxFreq=maxfreq,
-                                              frameSize=framesize, hopSize=hop,
-                                              normalize=normalize)
+    from maelzel.snd import spectralfeatures
+    times, f0, confidence, voiced = spectralfeatures.pyin(
+        sig, sr=sr,
+        minFreq=minfreq, maxFreq=maxfreq,
+        frameSize=framesize, hopSize=hop,
+        normalize=normalize)
 
     times = np.linspace(0, totaldur, len(f0))
     return bpf4.Linear(times, f0), bpf4.Linear(times, confidence)
@@ -147,7 +148,7 @@ def frequencyToWindowSize(freq: int, sr: int, powerof2=False, factor=2.0) -> int
 
 
 def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
-            method='pyin', unvoicedFreqs='nan'
+            method='native', unvoicedFreqs='nan'
             ) -> tuple[bpf4.Linear, bpf4.Linear]:
     """
     Estimate the fundamental and its voicedness
@@ -169,16 +170,12 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
         minfreq: the min. frequency of the fundamental. Using this hint
             we estimate the best value for fft size / window size
         overlap: the amount of overlap between analysis windows
-        method: the method used. One of 'pyin', 'fft', 'hps', 'autocorrelation'.
-            For pyin make sure that you are using the vamp plugin, since the
-            fallback version (using an implementation based on librosa's version
-            of the algorithm) is very slow at the moment. **If the vamp plugin
-            is not available you should see a warning**
+        method: one of 'vamp' or 'native'. 'vamp' uses the pyin vamp
+            plugin, 'native' uses the python implementation
         unvoicedFreqs: (only relevant for method 'pyin'). One of 'nan', 'negative'.
             If 'nan' unvoiced  frequencies (frequencies for segments where the
             f0 confidence is too low) are given as `nan`. If 'negative' unvoiced
             freqs are given as negative.
-
 
     Returns:
         a tuple (f0curve, f0voicedness)
@@ -202,16 +199,7 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
         raise ValueError("sig should be a mono signal")
 
     from maelzel.snd import vamptools
-    if method == 'pyin':
-        if vamptools.pyinAvailable():
-            method = 'pyin-vamp'
-        else:
-            method = 'pyin-native'
-            getLogger(__file__).warning("The pyin vamp plugin was not found. Falling back to"
-                                        "the python version, this might be very slow")
-
-
-    if method == 'pyin-native':
+    if method == 'native' or not vamptools.pyinAvailable():
         winlength = frequencyToWindowSize(minfreq, sr=sr, powerof2=False)
         hoplength = winlength // overlap
         from emlib.mathlib import nextpowerof2
@@ -219,15 +207,17 @@ def f0curve(sig: np.ndarray, sr: int, minfreq=60, overlap=4,
         return f0curvePyin(sig, sr, minfreq=minfreq,
                            framesize=fftlength,
                            winsize=winlength, hop=hoplength)
-    elif method == 'pyin-vamp':
+    else:
+        assert method == 'vamp'
         fftsize = frequencyToWindowSize(minfreq, sr=sr, powerof2=True)
         return f0curvePyinVamp(sig, sr, fftsize=fftsize, overlap=overlap,
                                unvoicedFreqs=unvoicedFreqs)
-    else:
-        raise ValueError(f"Invalid method {method}")
 
 
-def _detectMinFrequency(samples: np.ndarray, sr: int, minFreq=30, overlap=4,
+def _detectMinFrequency(samples: np.ndarray,
+                        sr: int,
+                        minFreq=30,
+                        overlap=2,
                         minAmp=0.1,
                         refine=True
                         ) -> tuple[float, float]:
@@ -265,44 +255,68 @@ def _detectMinFrequency(samples: np.ndarray, sr: int, minFreq=30, overlap=4,
         margin = 0.2
         start = int((time - margin)*sr)
         end = int((time + margin)*sr)
-        f, t = detectMinFrequency(samples[start:end], sr=sr, minFreq=minFreq,
-                                  overlap=overlap*4, lowAmpSuppression=minAmp,
-                                  refine=False)
+        f, t = detectMinFreq(samples[start:end], sr=sr, minFreq=minFreq,
+                             overlap=overlap*4, lowAmpSuppression=minAmp,
+                             refine=False)
         return f, time - margin + t
     return float(selected[idx]), time
 
 
-def detectMinFrequency(samples: np.ndarray, sr: int, frameSize=2048, overlap=2,
-                       lowAmpSuppression=0.1,
-                       maxFreq=2000,
-                       minFreq=30,
-                       confidence=0.4,
-                       refine=True
-                       ) -> tuple[float, float]:
+def detectMinFreq(samples: np.ndarray,
+                  sr: int,
+                  frameSize=2048,
+                  overlap=2,
+                  lowAmpSuppression=0.1,
+                  maxFreq=2000,
+                  minFreq=30,
+                  confidence=0.4,
+                  refine=True,
+                  method: str = 'pyin'
+                  ) -> tuple[float, float]:
     """
-    Detect the min. frequency in this audio sample
+    Returns the min. frequency and the time at which it is present
 
     Args:
         samples: the samples to analyze
         sr: the sample rate
-        minFreq: the lowest freq. to considere
+        frameSize: FFT frame size
         overlap: the amount of overlap analysis per window
-        confidence: min. confidence to consider
         lowAmpSuppression: how much to supress low amplitudes
+        maxFreq: max frequency to consider
+        minFreq: the lowest freq. to considere
+        confidence: min. confidence to consider
         refine: if True, refine the freq and time data. This allows to
             performe a more coarse pass with a low overlap (for example, 4)
             and then a short pass with a higher overlap to obtain a more
             accurate value
+        method: pitch detection method, either 'pyin' or 'acf'. pyin is
+            more robust and recommended for monophonic audio, acf is
+            useful for polyphonic or reverberant audio
 
     Returns:
-        a tuple (min. freq, corresponding time) or (0., 0.) if no pitched sound was detected
+        a tuple (minfreq, time) or (0., 0.) if no pitch was detected
 
     """
-    from maelzel.snd import pyin
-    from maelzel.snd.numpysnd import schmitt
+    from maelzel.snd.spectralfeatures import pyin, Analysis, AcfFeature
 
-    times, f0, confs, voiced = pyin.pyin(samples, sr=sr, minFreq=minFreq, maxFreq=maxFreq,
-                                              frameSize=frameSize, hopSize=frameSize//overlap)
+    if method not in ('pyin', 'acf'):
+        raise ValueError(f"method must be 'pyin' or 'acf', got {method!r}")
+
+    hopSize = frameSize // overlap
+
+    if method == 'pyin':
+        times, f0, confs, voiced = pyin(samples, sr=sr, minFreq=minFreq, maxFreq=maxFreq,
+                                        frameSize=frameSize, hopSize=hopSize)
+    else:  # method == 'acf'
+        analysis = Analysis(samples=samples, sr=sr, frameSize=frameSize, hopSize=hopSize,
+                           minFreq=minFreq, maxFreq=maxFreq, normalize=True,
+                           lowAmpSuppression=lowAmpSuppression)
+        analysis.addFeature(AcfFeature(minFreq=minFreq, maxFreq=maxFreq))
+        out = analysis.run()
+        times = out['times']
+        f0 = out['acf.f0']
+        confs = out['acf.confidence']
+
     mask = (confs > confidence) * (f0 > minFreq)
     selected = f0[mask]
     if len(selected) == 0:
@@ -314,9 +328,10 @@ def detectMinFrequency(samples: np.ndarray, sr: int, frameSize=2048, overlap=2,
         margin = 0.2
         start = int((time - margin)*sr)
         end = int((time + margin)*sr)
-        f, t = detectMinFrequency(samples[start:end], sr=sr, minFreq=minFreq, maxFreq=maxFreq,
-                                  overlap=overlap*4, lowAmpSuppression=lowAmpSuppression,
-                                  refine=False)
+        f, t = detectMinFreq(samples[start:end], sr=sr, frameSize=frameSize,
+                             minFreq=minFreq, maxFreq=maxFreq,
+                             lowAmpSuppression=lowAmpSuppression,
+                             overlap=overlap*4, refine=False, method=method)
         if f > 0:
             return f, time - margin + t
     return freq, time

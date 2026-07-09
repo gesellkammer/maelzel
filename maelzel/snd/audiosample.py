@@ -1547,7 +1547,7 @@ class Sample:
             avgfreq = float(scipy.stats.trim_mean(freqs[freqs > minfreq], proportiontocut=0.1))
         return avgfreq
 
-    def detectMinFreq(self, frameSize=2048, overlap=2, confidence=0.3, refine=False
+    def detectMinFreq(self, frameSize=2048, overlap=2, confidence=0.3, refine=False, method='pyin', minFreq=30, maxFreq=3000
                       ) -> tuple[float, float]:
         """
         Detects the min. frequency of pitched (voiced) material in this sample
@@ -1555,9 +1555,13 @@ class Sample:
         Args:
             frameSize: the analysis frame size
             overlap: number of analysis frames to overlap
-            confidence: min. confidence to considere
+            confidence: min. confidence
             refine: if True, after searching coarsly for low pitches, search near
                 the best region with more overlap for better freq and time resolution
+            minFreq: min. accepted frequency
+            maxFreq: max. accepted frequency
+            method: 'pyin' or 'acf'. pyin is more robust and recommended for monophonic
+                audio, acf is useful for polyphonic or reverberant audio
 
         Returns:
             a tuple (freq, time). Both will be 0 if no pitched material found
@@ -1565,10 +1569,11 @@ class Sample:
         from maelzel.snd import pitchtrack
         if overlap >= 4:
             refine = False
-        return pitchtrack.detectMinFrequency(samples=self.samples, sr=self.sr,
-                                             frameSize=frameSize, overlap=overlap,
-                                             confidence=confidence, minFreq=30, maxFreq=5000,
-                                             refine=refine)
+        return pitchtrack.detectMinFreq(samples=self.samples, sr=self.sr,
+                                        frameSize=frameSize, overlap=overlap,
+                                        confidence=confidence, minFreq=minFreq, maxFreq=maxFreq,
+                                        method=method,
+                                        refine=refine)
 
 
     def fundamental(self, fftsize=2048, overlap=4, unvoiced='negative', minAmpDb=-60, sensitivity=0.7
