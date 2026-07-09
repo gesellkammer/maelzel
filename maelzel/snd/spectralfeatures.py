@@ -124,6 +124,20 @@ def _acf_pitch(power: np.ndarray, fs: int, fmin: float, fmax: float, frameSize: 
 
 
 def _bandEnergy(power: np.ndarray, freqs: np.ndarray, freq: float, bandBins: int = 2) -> float:
+    """
+    Calculate the energy in the band corresponding to the given freq
+
+    Args:
+        power: power spectrum
+        freqs: freqs coresponding to the fft bins
+        freq: the freq. to calculate energy at
+        bandBins: number of bins to include in the calculation. Due to smearing, energy corresponding
+            to a given freq. can land in neighbouring bins
+
+    Returns:
+        the energy of the band which includes the given frequency
+
+    """
     if freq <= 0 or len(power) == 0:
         return 0.0
     idx = int(np.searchsorted(freqs, freq))
